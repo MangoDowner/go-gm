@@ -9,7 +9,6 @@ package httptest
 import (
 	"bytes"
 	"crypto/tls"
-	"crypto/x509"
 	"flag"
 	"fmt"
 	"log"
@@ -19,6 +18,7 @@ import (
 	"os"
 	"sync"
 	"time"
+	"crypto/sm2"
 )
 
 // A Server is an HTTP server listening on a system-chosen port on the
@@ -37,7 +37,7 @@ type Server struct {
 	Config *http.Server
 
 	// certificate is a parsed version of the TLS config certificate, if present.
-	certificate *x509.Certificate
+	certificate *sm2.Certificate
 
 	// wg counts the number of outstanding HTTP requests on this server.
 	// Close blocks until all requests are finished.
@@ -138,11 +138,11 @@ func (s *Server) StartTLS() {
 	if len(s.TLS.Certificates) == 0 {
 		s.TLS.Certificates = []tls.Certificate{cert}
 	}
-	s.certificate, err = x509.ParseCertificate(s.TLS.Certificates[0].Certificate[0])
+	s.certificate, err = sm2.ParseCertificate(s.TLS.Certificates[0].Certificate[0])
 	if err != nil {
 		panic(fmt.Sprintf("httptest: NewTLSServer: %v", err))
 	}
-	certpool := x509.NewCertPool()
+	certpool := sm2.NewCertPool()
 	certpool.AddCert(s.certificate)
 	s.client.Transport = &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -262,7 +262,7 @@ func (s *Server) CloseClientConnections() {
 
 // Certificate returns the certificate used by the server, or nil if
 // the server doesn't use TLS.
-func (s *Server) Certificate() *x509.Certificate {
+func (s *Server) Certificate() *sm2.Certificate {
 	return s.certificate
 }
 
