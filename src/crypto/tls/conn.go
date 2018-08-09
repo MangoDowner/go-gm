@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"crypto/cipher"
 	"crypto/subtle"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"crypto/sm2"
 )
 
 // A Conn represents a secured connection.
@@ -28,7 +28,8 @@ type Conn struct {
 	isClient bool
 
 	// constant after handshake; protected by handshakeMutex
-	handshakeMutex sync.Mutex // handshakeMutex < in.Mutex, out.Mutex, errMutex
+	handshakeMutex sync.Mutex // handshakeMutex < in.Mutex, out.Mutex, er
+	// rMutex
 	// handshakeCond, if not nil, indicates that a goroutine is committed
 	// to running the handshake for this Conn. Other goroutines that need
 	// to wait for the handshake can wait on this, under handshakeMutex.
@@ -48,10 +49,10 @@ type Conn struct {
 	cipherSuite      uint16
 	ocspResponse     []byte   // stapled OCSP response
 	scts             [][]byte // signed certificate timestamps from server
-	peerCertificates []*x509.Certificate
+	peerCertificates []*sm2.Certificate
 	// verifiedChains contains the certificate chains that we built, as
 	// opposed to the ones presented by the server.
-	verifiedChains [][]*x509.Certificate
+	verifiedChains [][]*sm2.Certificate
 	// serverName contains the server name indicated by the client, if any.
 	serverName string
 	// secureRenegotiation is true if the server echoed the secure

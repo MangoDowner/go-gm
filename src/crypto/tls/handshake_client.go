@@ -10,13 +10,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/subtle"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"strings"
+	"crypto/sm2"
 )
 
 type clientHandshakeState struct {
@@ -273,9 +273,9 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	if c.handshakes == 0 {
 		// If this is the first handshake on a connection, process and
 		// (optionally) verify the server's certificates.
-		certs := make([]*x509.Certificate, len(certMsg.certificates))
+		certs := make([]*sm2.Certificate, len(certMsg.certificates))
 		for i, asn1Data := range certMsg.certificates {
-			cert, err := x509.ParseCertificate(asn1Data)
+			cert, err := sm2.ParseCertificate(asn1Data)
 			if err != nil {
 				c.sendAlert(alertBadCertificate)
 				return errors.New("tls: failed to parse certificate from server: " + err.Error())
@@ -284,11 +284,11 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 		}
 
 		if !c.config.InsecureSkipVerify {
-			opts := x509.VerifyOptions{
+			opts := sm2.VerifyOptions{
 				Roots:         c.config.RootCAs,
 				CurrentTime:   c.config.time(),
 				DNSName:       c.config.ServerName,
-				Intermediates: x509.NewCertPool(),
+				Intermediates: sm2.NewCertPool(),
 			}
 
 			for i, cert := range certs {
@@ -312,7 +312,7 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 		}
 
 		switch certs[0].PublicKey.(type) {
-		case *rsa.PublicKey, *ecdsa.PublicKey:
+		case *rsa.PublicKey, *ecdsa.PublicKey, *sm2.PublicKey:
 			break
 		default:
 			c.sendAlert(alertUnsupportedCertificate)
@@ -434,7 +434,7 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 
 		var signatureType uint8
 		switch key.Public().(type) {
-		case *ecdsa.PublicKey:
+		case *ecdsa.PublicKey, *sm2.PublicKey:
 			signatureType = signatureECDSA
 		case *rsa.PublicKey:
 			signatureType = signatureRSA
@@ -745,15 +745,16 @@ findCert:
 			// node, or if chain.Leaf was nil
 			if j != 0 || x509Cert == nil {
 				var err error
-				if x509Cert, err = x509.ParseCertificate(cert); err != nil {
+				if x509Cert, err = sm2.ParseCertificate(cert); err != nil {
 					c.sendAlert(alertInternalError)
 					return nil, errors.New("tls: failed to parse client certificate #" + strconv.Itoa(i) + ": " + err.Error())
 				}
 			}
 
+
 			switch {
-			case rsaAvail && x509Cert.PublicKeyAlgorithm == x509.RSA:
-			case ecdsaAvail && x509Cert.PublicKeyAlgorithm == x509.ECDSA:
+			case rsaAvail && x509Cert.PublicKeyAlgorithm == sm2.RSA:
+			case ecdsaAvail && x509Cert.PublicKeyAlgorithm == sm2.ECDSA:
 			default:
 				continue findCert
 			}

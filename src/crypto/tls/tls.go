@@ -22,6 +22,7 @@ import (
 	"net"
 	"strings"
 	"time"
+	"crypto/sm2"
 )
 
 // Server returns a new TLS server side connection
@@ -245,7 +246,7 @@ func X509KeyPair(certPEMBlock, keyPEMBlock []byte) (Certificate, error) {
 
 	// We don't need to parse the public key for TLS, but we so do anyway
 	// to check that it looks sane and matches the private key.
-	x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
+	x509Cert, err := sm2.ParseCertificate(cert.Certificate[0])
 	if err != nil {
 		return fail(err)
 	}
@@ -260,12 +261,24 @@ func X509KeyPair(certPEMBlock, keyPEMBlock []byte) (Certificate, error) {
 			return fail(errors.New("tls: private key does not match public key"))
 		}
 	case *ecdsa.PublicKey:
-		priv, ok := cert.PrivateKey.(*ecdsa.PrivateKey)
-		if !ok {
-			return fail(errors.New("tls: private key type does not match public key type"))
-		}
-		if pub.X.Cmp(priv.X) != 0 || pub.Y.Cmp(priv.Y) != 0 {
-			return fail(errors.New("tls: private key does not match public key"))
+		pub, _ = x509Cert.PublicKey.(*ecdsa.PublicKey)
+		switch pub.Curve {
+		case sm2.P256Sm2():
+			priv, ok := cert.PrivateKey.(*sm2.PrivateKey)
+			if !ok {
+				return fail(errors.New("tls: sm2 private key type does not match public key type"))
+			}
+			if pub.X.Cmp(priv.X) != 0 || pub.Y.Cmp(priv.Y) != 0 {
+				return fail(errors.New("tls: sm2 private key does not match public key"))
+			}
+		default:
+			priv, ok := cert.PrivateKey.(*ecdsa.PrivateKey)
+			if !ok {
+				return fail(errors.New("tls: private key type does not match public key type"))
+			}
+			if pub.X.Cmp(priv.X) != 0 || pub.Y.Cmp(priv.Y) != 0 {
+				return fail(errors.New("tls: private key does not match public key"))
+			}
 		}
 	default:
 		return fail(errors.New("tls: unknown public key algorithm"))
@@ -289,7 +302,7 @@ func parsePrivateKey(der []byte) (crypto.PrivateKey, error) {
 			return nil, errors.New("tls: found unknown private key type in PKCS#8 wrapping")
 		}
 	}
-	if key, err := x509.ParseECPrivateKey(der); err == nil {
+	if key, err := sm2.ParsePKCS8UnecryptedPrivateKey(der); err == nil {
 		return key, nil
 	}
 

@@ -11,13 +11,14 @@ import (
 	"crypto/md5"
 	"crypto/rsa"
 	"crypto/sha1"
-	"crypto/x509"
 	"encoding/asn1"
 	"errors"
 	"io"
 	"math/big"
 
 	"golang_org/x/crypto/curve25519"
+
+	"crypto/sm2"
 )
 
 var errClientKeyExchange = errors.New("tls: invalid ClientKeyExchange message")
@@ -62,11 +63,11 @@ func (ka rsaKeyAgreement) processClientKeyExchange(config *Config, cert *Certifi
 	return preMasterSecret, nil
 }
 
-func (ka rsaKeyAgreement) processServerKeyExchange(config *Config, clientHello *clientHelloMsg, serverHello *serverHelloMsg, cert *x509.Certificate, skx *serverKeyExchangeMsg) error {
+func (ka rsaKeyAgreement) processServerKeyExchange(config *Config, clientHello *clientHelloMsg, serverHello *serverHelloMsg, cert *sm2.Certificate, skx *serverKeyExchangeMsg) error {
 	return errors.New("tls: unexpected ServerKeyExchange")
 }
 
-func (ka rsaKeyAgreement) generateClientKeyExchange(config *Config, clientHello *clientHelloMsg, cert *x509.Certificate) ([]byte, *clientKeyExchangeMsg, error) {
+func (ka rsaKeyAgreement) generateClientKeyExchange(config *Config, clientHello *clientHelloMsg, cert *sm2.Certificate) ([]byte, *clientKeyExchangeMsg, error) {
 	preMasterSecret := make([]byte, 48)
 	preMasterSecret[0] = byte(clientHello.vers >> 8)
 	preMasterSecret[1] = byte(clientHello.vers)
@@ -165,6 +166,8 @@ func curveForCurveID(id CurveID) (elliptic.Curve, bool) {
 		return elliptic.P384(), true
 	case CurveP521:
 		return elliptic.P521(), true
+	case CureP256SM2:
+		return sm2.P256Sm2(), true
 	default:
 		return nil, false
 	}
@@ -261,8 +264,9 @@ NextCandidate:
 	var sig []byte
 	switch ka.sigType {
 	case signatureECDSA:
-		_, ok := priv.Public().(*ecdsa.PublicKey)
-		if !ok {
+		_, ok1 := priv.Public().(*sm2.PublicKey)
+		_, ok2 := priv.Public().(*ecdsa.PublicKey)
+		if !ok1 && !ok2 {
 			return nil, errors.New("tls: ECDHE ECDSA requires an ECDSA server key")
 		}
 	case signatureRSA:
@@ -334,7 +338,7 @@ func (ka *ecdheKeyAgreement) processClientKeyExchange(config *Config, cert *Cert
 	return preMasterSecret, nil
 }
 
-func (ka *ecdheKeyAgreement) processServerKeyExchange(config *Config, clientHello *clientHelloMsg, serverHello *serverHelloMsg, cert *x509.Certificate, skx *serverKeyExchangeMsg) error {
+func (ka *ecdheKeyAgreement) processServerKeyExchange(config *Config, clientHello *clientHelloMsg, serverHello *serverHelloMsg, cert *sm2.Certificate, skx *serverKeyExchangeMsg) error {
 	if len(skx.key) < 4 {
 		return errServerKeyExchange
 	}
@@ -410,8 +414,19 @@ func (ka *ecdheKeyAgreement) processServerKeyExchange(config *Config, clientHell
 		if ecdsaSig.R.Sign() <= 0 || ecdsaSig.S.Sign() <= 0 {
 			return errors.New("tls: ECDSA signature contained zero or negative values")
 		}
-		if !ecdsa.Verify(pubKey, digest, ecdsaSig.R, ecdsaSig.S) {
-			return errors.New("tls: ECDSA verification failure")
+		switch pubKey.Curve {
+		case sm2.P256Sm2():
+			if !sm2.Verify(&sm2.PublicKey{
+				X:     pubKey.X,
+				Y:     pubKey.Y,
+				Curve: pubKey.Curve,
+			}, digest, ecdsaSig.R, ecdsaSig.S) {
+				return errors.New("tls: SM2 verification failure")
+			}
+		default:
+			if !ecdsa.Verify(pubKey, digest, ecdsaSig.R, ecdsaSig.S) {
+				return errors.New("tls: ECDSA verification failure")
+			}
 		}
 	case signatureRSA:
 		pubKey, ok := cert.PublicKey.(*rsa.PublicKey)
@@ -428,7 +443,7 @@ func (ka *ecdheKeyAgreement) processServerKeyExchange(config *Config, clientHell
 	return nil
 }
 
-func (ka *ecdheKeyAgreement) generateClientKeyExchange(config *Config, clientHello *clientHelloMsg, cert *x509.Certificate) ([]byte, *clientKeyExchangeMsg, error) {
+func (ka *ecdheKeyAgreement) generateClientKeyExchange(config *Config, clientHello *clientHelloMsg, cert *sm2.Certificate) ([]byte, *clientKeyExchangeMsg, error) {
 	if ka.curveid == 0 {
 		return nil, nil, errors.New("tls: missing ServerKeyExchange message")
 	}
