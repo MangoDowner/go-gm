@@ -8,12 +8,12 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
+	"crypto/sm2"
 	"crypto/subtle"
 	"encoding/asn1"
 	"errors"
 	"fmt"
 	"io"
-	"crypto/sm2"
 )
 
 // serverHandshakeState contains details of a server handshake in progress.
@@ -555,8 +555,19 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 			if digest, _, err = hs.finishedHash.hashForClientCertificate(signatureAndHash, hs.masterSecret); err != nil {
 				break
 			}
-			if !ecdsa.Verify(key, digest, ecdsaSig.R, ecdsaSig.S) {
-				err = errors.New("tls: ECDSA verification failure")
+			switch key.Curve {
+			case sm2.P256Sm2():
+				if !sm2.Verify(&sm2.PublicKey{
+					X:     key.X,
+					Y:     key.Y,
+					Curve: key.Curve,
+				}, digest, ecdsaSig.R, ecdsaSig.S) {
+					err = errors.New("tls: SM2 verification failure")
+				}
+			default:
+				if !ecdsa.Verify(key, digest, ecdsaSig.R, ecdsaSig.S) {
+					err = errors.New("tls: ECDSA verification failure")
+				}
 			}
 		case *rsa.PublicKey:
 			if signatureAndHash.signature != signatureRSA {
